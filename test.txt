@@ -1,0 +1,14 @@
+echo "1. Тестування PUT: Запис зображення для коду 200 в кеш"
+curl -X PUT --data-binary "@test-image.jpeg" http://localhost:8000/200
+
+echo "\n\n2. Тестування GET: Отримання зображення 200 з кешу"
+curl -X GET http://localhost:8000/200 -o cached_200.jpeg
+
+echo "\n\n3. Тестування DELETE: Видалення зображення 200 з кешу"
+curl -X DELETE http://localhost:8000/200
+
+echo "\n\n4. Тестування GET (негативний): Спроба отримати видалене зображення"
+curl -v http://localhost:8000/200
+
+echo "\n\n5. Тестування непідтримуваного методу (POST)"
+curl -X POST http://localhost:8000/418
