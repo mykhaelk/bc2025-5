@@ -1,6 +1,8 @@
 const http = require('http');
 const fs = require('fs/promises');
 const { program } = require('commander');
+const superagent = require('superagent');
+const path = require('path');
 
 // Налаштування аргументів командного рядка
 program
@@ -23,11 +25,79 @@ const createCacheDir = async () => {
   }
 };
 
-const server = http.createServer((req, res) => {
-  // Логіку обробки запитів ми додамо в наступних частинах
-  res.writeHead(501, { 'Content-Type': 'text/plain; charset=utf-8' });
-  res.end('Функціонал ще не реалізовано');
+const server = http.createServer(async(req, res) => {
+    const { method, url } = req;
+  const statusCode = url.slice(1); // Отримуємо код статусу з URL (напр., "200")
+  const filePath = path.join(cache, `${statusCode}.jpeg`);
+
+  // Перевірка, чи є URL числом
+  if (!/^\d+$/.test(statusCode)) {
+    res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+    return res.end('Некоректний запит. URL має містити числовий код HTTP.');
+  }
+
+  switch (method) {
+    case 'GET':
+      try {
+        const data = await fs.readFile(filePath);
+        console.log('Зображення взято з кешу.');
+        res.writeHead(200, { 'Content-Type': 'image/jpeg' });
+        res.end(data);
+      } catch (error) {
+        // Якщо файлу немає в кеші (ENOENT), робимо запит до http.cat
+        if (error.code === 'ENOENT') {
+          console.log(`Зображення для коду ${statusCode} немає в кеші. Завантаження з http.cat...`);
+          try {
+            const response = await superagent.get(`https://http.cat/${statusCode}`);
+            await fs.writeFile(filePath, response.body); // Зберігаємо в кеш
+            console.log('Зображення завантажено і збережено в кеш.');
+            res.writeHead(200, { 'Content-Type': 'image/jpeg' });
+            res.end(response.body);
+          } catch (fetchError) {
+            res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+            res.end('Не вдалося знайти зображення на сервері http.cat.');
+          }
+        } else {
+          res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end('Внутрішня помилка сервера при читанні файлу.');
+        }
+      }
+      break;
+
+    case 'PUT':
+      try {
+        const chunks = [];
+        req.on('data', chunk => chunks.push(chunk));
+        req.on('end', async () => {
+          const data = Buffer.concat(chunks);
+          await fs.writeFile(filePath, data);
+          res.writeHead(201, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end('Зображення збережено в кеші.');
+        });
+      } catch (error) {
+        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Внутрішня помилка сервера при записі файлу.');
+      }
+      break;
+
+    case 'DELETE':
+      try {
+        await fs.unlink(filePath);
+        res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Зображення видалено з кешу.');
+      } catch (error) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Зображення не знайдено в кеші для видалення.');
+      }
+      break;
+
+    default:
+      res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end(`Метод ${method} не підтримується.`);
+      break;
+  }
 });
+
 
 // Запуск сервера
 server.listen(port, host, async () => {
